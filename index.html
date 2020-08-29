@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>FRT</title>
+
+    <!-- CSS only -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+        integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
+
+    <style>
+        .container_mine {
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .video_mine {
+            position: relative;
+        }
+
+        .canvas_mine {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+
+        .btn-xlg {
+            padding: 18px 28px;
+            font-size: 150%;
+            line-height: normal;
+            -webkit-border-radius: 8px;
+            -moz-border-radius: 8px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="row">
+            <div class="col-sm-2"></div>
+            <div class="col-sm-8 text-center">
+                <div class="container_mine">
+                    <video id="video" class="video_mine" width="720" height="560" autoplay muted></video>
+                    <canvas id="CANVAS" class="canvas_mine" width="720" height="560"></canvas>
+                </div>
+                <button type="button" id="photo_button" onclick="take_photo()" class="btn btn-primary btn-xlg"
+                    disabled>Please wait....</button>
+            </div>
+            <div class="col-sm-2"></div>
+        </div>
+        <br />
+        <br />
+        <br />
+        <div class="row">
+            <div class="col-sm-4">
+                <canvas id="over1" style="width: 100%;height:auto"></canvas>
+                <h1 id="over1_cap" style="word-wrap:break-word"></h1>
+            </div>
+            <div class="col-sm-4">
+                <canvas id="over2" style="width: 100%;height:auto"></canvas>
+                <h1 id="over2_cap" style="word-wrap:break-word"></h1>
+            </div>
+            <div class="col-sm-4">
+                <canvas id="over3" style="width: 100%;height:auto"></canvas>
+                <h1 id="over3_cap" style="word-wrap:break-word"></h1>
+            </div>
+        </div>
+
+        <div class="row">
+            <canvas id="archieve_canvas" style="display: none;"></canvas>
+        </div>
+
+    </div>
+
+    <!-- JS, Popper.js, and jQuery -->
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
+        integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"
+        integrity="sha384-9/reFTGAW83EW2RDu2S0VKaIzap3H66lZH81PoYlFhbGU+6BZp6G7niu735Sk7lN"
+        crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"
+        integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script>
+        // Load all of the needed variables
+        var detections, landmarks, resizedDetections, model, expressions_dict, items;
+        var detected_left, detected_top, detected_width, detected_height, detected_box;
+        const video = document.getElementById('video')
+        const videocanvas = document.getElementById('CANVAS');
+        const archieve_canvas = document.getElementById('archieve_canvas');
+        const archieve_ctx = archieve_canvas.getContext('2d');
+        const photo_button = document.getElementById('photo_button');
+        const displaySize = { width: video.width, height: video.height }
+        const debug = true;
+
+        // Over Lay images
+        const overlay_images = [
+            "sunglass.png", "sunhat.png", "wig.png",
+        ].map(function (src) {
+            const i = new Image();
+            i.src = "images/" + src;
+            return i;
+        });
+        const over1 = document.getElementById('over1'),
+            over1_ctx = over1.getContext('2d'),
+            over1_cap = document.getElementById('over1_cap'),
+            over2 = document.getElementById('over2'),
+            over2_ctx = over2.getContext('2d'),
+            over2_cap = document.getElementById('over2_cap'),
+            over3 = document.getElementById('over3'),
+            over3_ctx = over3.getContext('2d'),
+            over3_cap = document.getElementById('over3_cap');
+
+        // Load the models and start the prediction
+        Promise.all([
+            faceapi.matchDimensions(videocanvas, displaySize),
+            faceapi.matchDimensions(archieve_canvas, displaySize),
+            faceapi.loadSsdMobilenetv1Model('/models'),
+            faceapi.loadFaceLandmarkModel('/models'),
+            faceapi.loadFaceRecognitionModel('/models'),
+            faceapi.loadFaceExpressionModel('/models'),
+            faceapi.loadAgeGenderModel('/models'),
+            model = new faceapi.SsdMobilenetv1Options(),
+        ]).then(() => {
+            navigator.getUserMedia({ video: {} }, stream => video.srcObject = stream, err => console.error(err))
+        })
+
+        video.addEventListener('play', async () => {
+            setInterval(async () => {
+                try {
+                    detections = await faceapi.detectSingleFace(video, model).withFaceLandmarks()
+                    photo_button.disabled = false
+                    photo_button.innerHTML = "Take Photo"
+                    resizedDetections = faceapi.resizeResults(detections, displaySize)
+                    videocanvas.getContext('2d').clearRect(0, 0, videocanvas.width, videocanvas.height)
+                    faceapi.draw.drawDetections(videocanvas, resizedDetections)
+                    faceapi.draw.drawFaceLandmarks(videocanvas, resizedDetections)
+                } catch (err) {
+                    console.log(" [WARNING] Face is not found ")
+                    photo_button.disabled = true
+                    photo_button.innerHTML = "Face Not Found"
+                }
+            }, 100)
+        })
+
+        async function take_photo() {
+            landmarks = detections.landmarks,
+                detected_box = detections.alignedRect.box,
+                detected_left = detected_box.left,
+                detected_top = detected_box.top - 50,
+                detected_width = detected_box._width + 100,
+                detected__height = detected_box._height + 150;
+
+            // === TEMP PRINT ===
+            if (debug) {
+                console.log(detections)
+                console.log(landmarks.getLeftEye())
+                console.log(landmarks.getRightEye())
+                console.log(landmarks.getLeftEyeBrow())
+                console.log(landmarks.getRightEyeBrow())
+            }
+            // === TEMP PRINT ===
+
+            // Change the width and height of canvas
+            over1.width = detected_width; over1.height = detected__height
+            over2.width = detected_width; over2.height = detected__height
+            over3.width = detected_width; over3.height = detected__height
+
+            // Extract the Face Images
+            const box_s = detections.alignedRect.box
+            const imgWidth_s = box_s.width * 0.9;
+            const imgHeight_s = box_s.height * 0.9;
+            const x_s = box_s.x - imgWidth_s / 4;
+            const y_s = box_s.y - imgHeight_s / 4;
+
+            archieve_ctx.clearRect(0, 0, video.width, video.height);
+            archieve_ctx.drawImage(video, 0, 0, video.width, video.height)
+            archieve_ctx.drawImage(overlay_images[0], x_s, y_s, imgWidth_s, imgHeight_s)
+            var imgd = archieve_ctx.getImageData(detected_left, detected_top, detected_width, detected__height);
+            var pix = imgd.data;
+            var idata = new ImageData(pix, detected_width, detected__height);
+            over1_ctx.putImageData(idata, 0, 0);
+
+            archieve_ctx.clearRect(0, 0, video.width, video.height);
+            archieve_ctx.drawImage(video, 0, 0, video.width, video.height)
+            archieve_ctx.drawImage(overlay_images[1], x_s, y_s, imgWidth_s, imgHeight_s)
+            var imgd = archieve_ctx.getImageData(detected_left, detected_top, detected_width, detected__height);
+            var pix = imgd.data;
+            var idata = new ImageData(pix, detected_width, detected__height);
+            over2_ctx.putImageData(idata, 0, 0);
+
+            archieve_ctx.clearRect(0, 0, video.width, video.height);
+            archieve_ctx.drawImage(video, 0, 0, video.width, video.height)
+            archieve_ctx.drawImage(overlay_images[2], x_s, y_s, imgWidth_s, imgHeight_s)
+            var imgd = archieve_ctx.getImageData(detected_left, detected_top, detected_width, detected__height);
+            var pix = imgd.data;
+            var idata = new ImageData(pix, detected_width, detected__height);
+            over3_ctx.putImageData(idata, 0, 0);
+
+            // finally make the predictions
+            make_prediction()
+        }
+
+        async function make_prediction() {
+            detections = await faceapi.detectSingleFace(over1, model).withFaceLandmarks().withFaceExpressions().withAgeAndGender()
+            console.log(detections)
+            expressions_dict = detections.expressions
+            items = Object.keys(expressions_dict).map(function (key) { return [key, expressions_dict[key]]; });
+            items.sort(function (first, second) { return second[1] - first[1]; });
+            items = items.slice(0, 3)
+            over1_cap.innerHTML = "Age : " + detections.age
+                + "<br/>Gender : " + detections.gender
+                + "<br/>Gender Prob : " + detections.genderProbability
+                + "<br/>Expression : " + items
+
+            detections = await faceapi.detectSingleFace(over2, model).withFaceLandmarks().withFaceExpressions().withAgeAndGender()
+            console.log(detections)
+            expressions_dict = detections.expressions
+            items = Object.keys(expressions_dict).map(function (key) { return [key, expressions_dict[key]]; });
+            items.sort(function (first, second) { return second[1] - first[1]; });
+            items = items.slice(0, 3)
+            over2_cap.innerHTML = "Age : " + detections.age
+                + "<br/>Gender : " + detections.gender
+                + "<br/>Gender Prob : " + detections.genderProbability
+                + "<br/>Expression : " + items
+
+            detections = await faceapi.detectSingleFace(over3, model).withFaceLandmarks().withFaceExpressions().withAgeAndGender()
+            console.log(detections)
+            expressions_dict = detections.expressions
+            items = Object.keys(expressions_dict).map(function (key) { return [key, expressions_dict[key]]; });
+            items.sort(function (first, second) { return second[1] - first[1]; });
+            items = items.slice(0, 3)
+            over3_cap.innerHTML = "Age : " + detections.age
+                + "<br/>Gender : " + detections.gender
+                + "<br/>Gender Prob : " + detections.genderProbability
+                + "<br/>Expression : " + items
+        }
+    </script>
+</body>
+
+
+</html>
